@@ -3,7 +3,7 @@ psql_magic
 
 Conventions based "auto-complete" for "psql" (PostgreSQL command line client) for faster data-skimming.
 
-Tested with Postgres 9.3 and 9.4
+Meant to be compiled against Postgres 9.5 currently (9.3 and 9.4 will work with commit 688b899ccd2a2ebce7a13a82c5ad6949ebd6e39d)
 
 Usage
 ==========
