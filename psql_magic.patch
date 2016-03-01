@@ -1,5 +1,5 @@
 diff --git a/src/bin/psql/Makefile b/src/bin/psql/Makefile
-index 3a42cae..1492150 100644
+index f1336d5..8d09b98 100644
 --- a/src/bin/psql/Makefile
 +++ b/src/bin/psql/Makefile
 @@ -23,7 +23,7 @@ override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/p
@@ -12,10 +12,10 @@ index 3a42cae..1492150 100644
  
  
 diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
-index 6504959..aba1056 100644
+index 4488d59..8ddea75 100644
 --- a/src/bin/psql/command.c
 +++ b/src/bin/psql/command.c
-@@ -51,6 +51,7 @@
+@@ -48,6 +48,7 @@
  #include "psqlscan.h"
  #include "settings.h"
  #include "variables.h"
@@ -23,12 +23,12 @@ index 6504959..aba1056 100644
  
  
  /* functions for use in this file */
-@@ -1498,6 +1499,60 @@ exec_command(const char *cmd,
- 	else if (strcmp(cmd, "?") == 0)
- 		slashUsage(pset.popt.topt.pager);
+@@ -1532,6 +1533,60 @@ exec_command(const char *cmd,
+ 			slashUsage(pset.popt.topt.pager);
+ 	}
  
-+	/* \* -- psql_magic */
-+	else if (strcmp(cmd, "*") == 0) {
++   /* \* -- psql_magic */
++   else if (strcmp(cmd, "*") == 0) {
 +		char *cmd_params = psql_scan_slash_option(scan_state, OT_WHOLE_LINE, NULL, false);
 +		char *table_name = NULL;
 +		char *sql = NULL;
@@ -79,14 +79,14 @@ index 6504959..aba1056 100644
 +		else {
 +			print_magic_help();
 +		}
-+	}
++   }
 +
  #if 0
  
  	/*
 diff --git a/src/bin/psql/psql_magic.c b/src/bin/psql/psql_magic.c
 new file mode 100644
-index 0000000..66a9dea
+index 0000000..d1103da
 --- /dev/null
 +++ b/src/bin/psql/psql_magic.c
 @@ -0,0 +1,481 @@
@@ -160,7 +160,7 @@ index 0000000..66a9dea
 +		"WHERE lower(full_name) LIKE '%%%s%%'\n"
 +		, pattern);
 +
-+	res = PSQLexec(buf.data, false);
++	res = PSQLexec(buf.data);
 +	termPQExpBuffer(&buf);
 +	if (!res)
 +		return NULL;
@@ -239,7 +239,7 @@ index 0000000..66a9dea
 +		"ORDER BY ordinal_position\n",
 +		table_name, pattern_arr);
 +
-+	res = PSQLexec(buf.data, false);
++	res = PSQLexec(buf.data);
 +	termPQExpBuffer(&buf);
 +	if (!res)
 +		return NULL;
@@ -282,7 +282,7 @@ index 0000000..66a9dea
 +		"  AND i.indisprimary;\n",
 +		oid);
 +
-+	res = PSQLexec(buf.data, false);
++	res = PSQLexec(buf.data);
 +	termPQExpBuffer(&buf);
 +	if (!res)
 +		return NULL;
