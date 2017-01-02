@@ -12,7 +12,7 @@ index f1336d5..8d09b98 100644
  
  
 diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
-index 4488d59..8ddea75 100644
+index 19ac065..40afb27 100644
 --- a/src/bin/psql/command.c
 +++ b/src/bin/psql/command.c
 @@ -48,6 +48,7 @@
@@ -23,7 +23,7 @@ index 4488d59..8ddea75 100644
  
  
  /* functions for use in this file */
-@@ -1532,6 +1533,60 @@ exec_command(const char *cmd,
+@@ -1550,6 +1551,60 @@ exec_command(const char *cmd,
  			slashUsage(pset.popt.topt.pager);
  	}
  
@@ -86,10 +86,10 @@ index 4488d59..8ddea75 100644
  	/*
 diff --git a/src/bin/psql/psql_magic.c b/src/bin/psql/psql_magic.c
 new file mode 100644
-index 0000000..d1103da
+index 0000000..710b8a3
 --- /dev/null
 +++ b/src/bin/psql/psql_magic.c
-@@ -0,0 +1,481 @@
+@@ -0,0 +1,494 @@
 +#include "postgres_fe.h"
 +
 +#include <ctype.h>
@@ -113,7 +113,7 @@ index 0000000..d1103da
 +char *get_table_with_limit(char *table_name, char *limit);
 +char *get_table_order(char *table_name, char *order_by_column, int order_by);
 +char *get_table_order_limit(char *table_name, char *order_by_column, int ob_direction, char *limit);
-+char *get_table_by_column_value(char *table_name, char *column_name, char *column_value);
++char *get_table_by_column_value(char *table_name, char *column_name, char *column_value, char wildcard_option);
 +const char *get_created_column_patterns(void);
 +const char *get_modified_column_patterns(void);
 +int get_default_order_by_direction(void);
@@ -130,10 +130,10 @@ index 0000000..d1103da
 +	printf("\t\t[a|d] -> [asc|desc]. column patterns defined by psql_magic_created_column_patterns variable \n");
 +	printf("\t[lX] - optional \"limit X\" clause. if not specified default \"limit\" defined by psql_magic_default_row_limit wil be used\n");
 +
-+	printf("\npsql_magic usage 2: \"\\* table_pattern w[here] column_pattern column_value\"\n\n");
++    printf("\npsql_magic usage 2: \"\\* table_pattern w[l(ike)|i(like)|here] column_pattern column_value\"\n\n");
 +	printf("\ttable_pattern - \"*\" can be used for wildcards. full table names (with schema) will be searched\n");
 +	printf("\tcolumn_pattern - \"*\" can be used for wildcards\n");
-+	printf("\tcolumn_value - quotes will be added automatically\n");
++    printf("\tcolumn_value - quotes will be added automatically. when using like/ilike \"%\"-s should be used\n");
 +
 +}
 +
@@ -154,10 +154,10 @@ index 0000000..d1103da
 +		"FROM (\n"
 +		"	SELECT c.oid, quote_ident(n.nspname)||'.'||quote_ident(c.relname) AS full_name\n"
 +		"	FROM pg_class c join pg_namespace n on n.oid = c.relnamespace\n"
-+		"   WHERE relkind = 'r'\n"
-+		"   AND n.nspname != 'information_schema' AND NOT n.nspname LIKE 'pg\\_%%'\n"
++        "   WHERE relkind in ('r', 'v', 'm', 'f')\n"
++        "   AND n.nspname != 'information_schema'\n"
 +		"   ORDER BY length(quote_ident(n.nspname)||'.'||quote_ident(c.relname))) a\n"
-+		"WHERE lower(full_name) LIKE '%%%s%%'\n"
++        "WHERE full_name ILIKE '%%%s%%'\n"
 +		, pattern);
 +
 +	res = PSQLexec(buf.data);
@@ -351,10 +351,18 @@ index 0000000..d1103da
 +}
 +
 +char *
-+get_table_by_column_value(char *table_name, char *column_name, char *column_value) {
++get_table_by_column_value(char *table_name, char *column_name, char *column_value, char wildcard_option) {
 +	char *ret_sql = pg_malloc(PM_MAX_STATEMENT_CHARS);
-+	snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s = %s LIMIT %d;",
-+		table_name, column_name, column_value, get_default_limit());
++
++    if (wildcard_option == 'n')
++        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s = %s LIMIT %d;",
++            table_name, column_name, column_value, get_default_limit());
++    else if ((wildcard_option == 'l') )
++        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s LIKE %s LIMIT %d;",
++            table_name, column_name, column_value, get_default_limit());
++    else if ((wildcard_option == 'i') )
++        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s ILIKE %s LIMIT %d;",
++            table_name, column_name, column_value, get_default_limit());
 +
 +	return ret_sql;
 +}
@@ -404,8 +412,9 @@ index 0000000..d1103da
 +do_process_tokens(char** tokens, int tokencount) {
 +	char *ret = NULL, *table_token = NULL, *ob_token = NULL, *limit_token = NULL;
 +	char *order_by_column = NULL, *limit_value = NULL, *id_column = NULL, *id_value = NULL;
-+	char order_by_char = ' ', order_col_char = ' ', ob_c1, ob_c2, ob_c3;
-+	int order_by_direction = 0;
++    char order_by_char = ' ', order_col_char = ' ', ob_c1, ob_c2, ob_c3;
++    char wildcard_option = 'n'; /* n - no, l - like, i - ilike */
++    int order_by_direction = 0;
 +
 +	/* tbl_pattern only */
 +	if (tokencount == 1) {
@@ -430,7 +439,11 @@ index 0000000..d1103da
 +	} else if (tokencount == 4 && tokens[1][0] == 'w') { // tbl w id_pattern id_val
 +		id_column = tokens[2];
 +		id_value = tokens[3];
-+	} else {
++        if (tokens[1][1] == 'l')
++            wildcard_option = 'l';
++        else if (tokens[1][1] == 'i')
++            wildcard_option = 'i';
++    } else {
 +		printf("invalid \\* syntax!\n");
 +		print_magic_help();
 +	}
@@ -496,8 +509,8 @@ index 0000000..d1103da
 +		id_column_full = find_column_by_patterns(table_token, id_column);
 +		if (id_column_full == NULL)
 +			return NULL;
-+		id_value_full = quote_string_if_not_quoted(id_value);
-+		ret = get_table_by_column_value(table_token, id_column_full, id_value_full);
++        id_value_full = quote_string_if_not_quoted(id_value);
++        ret = get_table_by_column_value(table_token, id_column_full, id_value_full, wildcard_option);
 +		free(id_column_full);
 +		free(id_value_full);
 +	}
