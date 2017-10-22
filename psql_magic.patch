@@ -1,29 +1,35 @@
+commit e57fd73d0fef8e26c27a073a7413d59cf74b0864
+Author: Kaarel Moppel <kaarel.moppel@gmail.com>
+Date:   Sun Oct 22 09:56:38 2017 +0300
+
+    psql_magic 9.6
+
 diff --git a/src/bin/psql/Makefile b/src/bin/psql/Makefile
-index f1336d5..8d09b98 100644
+index 4295154cae..8af62e8004 100644
 --- a/src/bin/psql/Makefile
 +++ b/src/bin/psql/Makefile
-@@ -23,7 +23,7 @@ override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/bin/p
+@@ -24,7 +24,7 @@ override LDFLAGS := -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport) $
  OBJS=	command.o common.o help.o input.o stringutils.o mainloop.o copy.o \
- 	startup.o prompt.o variables.o large_obj.o print.o describe.o \
- 	tab-complete.o mbprint.o dumputils.o keywords.o kwlookup.o \
--	sql_help.o \
-+	sql_help.o psql_magic.o \
+ 	startup.o prompt.o variables.o large_obj.o describe.o \
+ 	crosstabview.o tab-complete.o \
+-	sql_help.o psqlscanslash.o \
++        sql_help.o psqlscanslash.o psql_magic.o \
  	$(WIN32RES)
  
  
 diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
-index 19ac065..40afb27 100644
+index 4aaf657cce..03b79add9b 100644
 --- a/src/bin/psql/command.c
 +++ b/src/bin/psql/command.c
-@@ -48,6 +48,7 @@
- #include "psqlscan.h"
- #include "settings.h"
- #include "variables.h"
+@@ -7,6 +7,7 @@
+  */
+ #include "postgres_fe.h"
+ #include "command.h"
 +#include "psql_magic.h"
  
- 
- /* functions for use in this file */
-@@ -1550,6 +1551,60 @@ exec_command(const char *cmd,
+ #ifdef __BORLANDC__				/* needed for BCC */
+ #undef mkdir
+@@ -1711,6 +1712,60 @@ exec_command(const char *cmd,
  			slashUsage(pset.popt.topt.pager);
  	}
  
@@ -86,10 +92,10 @@ index 19ac065..40afb27 100644
  	/*
 diff --git a/src/bin/psql/psql_magic.c b/src/bin/psql/psql_magic.c
 new file mode 100644
-index 0000000..710b8a3
+index 0000000000..ee0ccd99f9
 --- /dev/null
 +++ b/src/bin/psql/psql_magic.c
-@@ -0,0 +1,494 @@
+@@ -0,0 +1,497 @@
 +#include "postgres_fe.h"
 +
 +#include <ctype.h>
@@ -133,7 +139,7 @@ index 0000000..710b8a3
 +    printf("\npsql_magic usage 2: \"\\* table_pattern w[l(ike)|i(like)|here] column_pattern column_value\"\n\n");
 +	printf("\ttable_pattern - \"*\" can be used for wildcards. full table names (with schema) will be searched\n");
 +	printf("\tcolumn_pattern - \"*\" can be used for wildcards\n");
-+    printf("\tcolumn_value - quotes will be added automatically. when using like/ilike \"%\"-s should be used\n");
++    printf("\tcolumn_value - quotes will be added automatically. when using like/ilike \"%%\"-s should be used\n");
 +
 +}
 +
@@ -354,15 +360,18 @@ index 0000000..710b8a3
 +get_table_by_column_value(char *table_name, char *column_name, char *column_value, char wildcard_option) {
 +	char *ret_sql = pg_malloc(PM_MAX_STATEMENT_CHARS);
 +
-+    if (wildcard_option == 'n')
++    if (wildcard_option == 'n') {
 +        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s = %s LIMIT %d;",
 +            table_name, column_name, column_value, get_default_limit());
-+    else if ((wildcard_option == 'l') )
++    }
++    else if (wildcard_option == 'l') {
 +        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s LIKE %s LIMIT %d;",
 +            table_name, column_name, column_value, get_default_limit());
-+    else if ((wildcard_option == 'i') )
++    }
++    else if (wildcard_option == 'i') {
 +        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s ILIKE %s LIMIT %d;",
 +            table_name, column_name, column_value, get_default_limit());
++    }
 +
 +	return ret_sql;
 +}
@@ -586,7 +595,7 @@ index 0000000..710b8a3
 +}
 diff --git a/src/bin/psql/psql_magic.h b/src/bin/psql/psql_magic.h
 new file mode 100644
-index 0000000..f6361ce
+index 0000000000..f6361ce47a
 --- /dev/null
 +++ b/src/bin/psql/psql_magic.h
 @@ -0,0 +1,30 @@
