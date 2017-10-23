@@ -1,24 +1,24 @@
-commit e57fd73d0fef8e26c27a073a7413d59cf74b0864
+commit 44b46158d1d8794f38de19d641ea6d6d77aa1abd
 Author: Kaarel Moppel <kaarel.moppel@gmail.com>
-Date:   Sun Oct 22 09:56:38 2017 +0300
+Date:   Mon Oct 23 09:54:36 2017 +0300
 
-    psql_magic 9.6
+    psql_magic 10.0
 
 diff --git a/src/bin/psql/Makefile b/src/bin/psql/Makefile
-index 4295154cae..8af62e8004 100644
+index cabfe15f97..5770caf6d5 100644
 --- a/src/bin/psql/Makefile
 +++ b/src/bin/psql/Makefile
 @@ -24,7 +24,7 @@ override LDFLAGS := -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport) $
- OBJS=	command.o common.o help.o input.o stringutils.o mainloop.o copy.o \
- 	startup.o prompt.o variables.o large_obj.o describe.o \
- 	crosstabview.o tab-complete.o \
--	sql_help.o psqlscanslash.o \
-+        sql_help.o psqlscanslash.o psql_magic.o \
+ OBJS=	command.o common.o conditional.o copy.o crosstabview.o \
+ 	describe.o help.o input.o large_obj.o mainloop.o \
+ 	prompt.o psqlscanslash.o sql_help.o startup.o stringutils.o \
+-	tab-complete.o variables.o \
++	tab-complete.o variables.o psql_magic.o \
  	$(WIN32RES)
  
  
 diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
-index 4aaf657cce..03b79add9b 100644
+index d427488748..b641c71c5f 100644
 --- a/src/bin/psql/command.c
 +++ b/src/bin/psql/command.c
 @@ -7,6 +7,7 @@
@@ -27,14 +27,14 @@ index 4aaf657cce..03b79add9b 100644
  #include "command.h"
 +#include "psql_magic.h"
  
- #ifdef __BORLANDC__				/* needed for BCC */
- #undef mkdir
-@@ -1711,6 +1712,60 @@ exec_command(const char *cmd,
- 			slashUsage(pset.popt.topt.pager);
- 	}
- 
-+   /* \* -- psql_magic */
-+   else if (strcmp(cmd, "*") == 0) {
+ #include <ctype.h>
+ #include <time.h>
+@@ -402,6 +403,59 @@ exec_command(const char *cmd,
+ 		status = exec_command_shell_escape(scan_state, active_branch);
+ 	else if (strcmp(cmd, "?") == 0)
+ 		status = exec_command_slash_command_help(scan_state, active_branch);
++	/* \* -- psql_magic */
++	else if (strcmp(cmd, "*") == 0) {
 +		char *cmd_params = psql_scan_slash_option(scan_state, OT_WHOLE_LINE, NULL, false);
 +		char *table_name = NULL;
 +		char *sql = NULL;
@@ -79,23 +79,22 @@ index 4aaf657cce..03b79add9b 100644
 +					free(table_name);
 +					status = PSQL_CMD_SEND;
 +				}
-+			}
-+			free(cmd_params);
++			 }
++			 free(cmd_params);
 +		}
 +		else {
 +			print_magic_help();
 +		}
-+   }
-+
- #if 0
++	}
+ 	else
+ 		status = PSQL_CMD_UNKNOWN;
  
- 	/*
 diff --git a/src/bin/psql/psql_magic.c b/src/bin/psql/psql_magic.c
 new file mode 100644
-index 0000000000..ee0ccd99f9
+index 0000000000..08cea4695f
 --- /dev/null
 +++ b/src/bin/psql/psql_magic.c
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,510 @@
 +#include "postgres_fe.h"
 +
 +#include <ctype.h>
@@ -131,16 +130,15 @@ index 0000000000..ee0ccd99f9
 +	printf("\ttable_pattern - \"*\" can be used for wildcards. full table names (with schema) will be searched\n");
 +	printf("\t[o|od|oa|oc|oca|ocd|om|oma|omd] - optional order by clause\n");
 +	printf("\t\twhere:\n");
-+	printf("\t\t[o]-> order by PK. sort direction determined by .psqlrc variable psql_magic_default_order_by_direction\n");
-+	printf("\t\t[c|m] -> [created|modified]. column patterns defined by psql_magic_created_column_patterns variable \n");
-+	printf("\t\t[a|d] -> [asc|desc]. column patterns defined by psql_magic_created_column_patterns variable \n");
-+	printf("\t[lX] - optional \"limit X\" clause. if not specified default \"limit\" defined by psql_magic_default_row_limit wil be used\n");
++	printf("\t\t[o]-> order by PK. sort direction determined by .psqlrc variable PSQL_MAGIC_DEFAULT_ORDER_BY_DIRECTION\n");
++	printf("\t\t[c|m] -> [created|modified]. column patterns defined by PSQL_MAGIC_CREATED_COLUMN_PATTERNS variable \n");
++	printf("\t\t[a|d] -> [asc|desc]. column patterns defined by PSQL_MAGIC_CREATED_COLUMN_PATTERNS variable \n");
++	printf("\t[lX] - optional \"limit X\" clause. if not specified default \"limit\" defined by PSQL_MAGIC_DEFAULT_ROW_LIMIT wil be used\n");
 +
-+    printf("\npsql_magic usage 2: \"\\* table_pattern w[l(ike)|i(like)|here] column_pattern column_value\"\n\n");
++	printf("\npsql_magic usage 2: \"\\* table_pattern w[l(ike)|i(like)|here] column_pattern column_value\"\n\n");
 +	printf("\ttable_pattern - \"*\" can be used for wildcards. full table names (with schema) will be searched\n");
 +	printf("\tcolumn_pattern - \"*\" can be used for wildcards\n");
-+    printf("\tcolumn_value - quotes will be added automatically. when using like/ilike \"%%\"-s should be used\n");
-+
++	printf("\tcolumn_value - quotes will be added automatically. when using like/ilike \"%%\"-s should be used\n");
 +}
 +
 +char *get_current_oid() {
@@ -160,10 +158,10 @@ index 0000000000..ee0ccd99f9
 +		"FROM (\n"
 +		"	SELECT c.oid, quote_ident(n.nspname)||'.'||quote_ident(c.relname) AS full_name\n"
 +		"	FROM pg_class c join pg_namespace n on n.oid = c.relnamespace\n"
-+        "   WHERE relkind in ('r', 'v', 'm', 'f')\n"
-+        "   AND n.nspname != 'information_schema'\n"
++		"   WHERE relkind in ('r', 'v', 'm', 'f')\n"
++		"   AND n.nspname != 'information_schema'\n"
 +		"   ORDER BY length(quote_ident(n.nspname)||'.'||quote_ident(c.relname))) a\n"
-+        "WHERE full_name ILIKE '%%%s%%'\n"
++		"WHERE full_name ILIKE '%%%s%%'\n"
 +		, pattern);
 +
 +	res = PSQLexec(buf.data);
@@ -180,7 +178,11 @@ index 0000000000..ee0ccd99f9
 +	}
 +
 +	if (PQntuples(res) > 1) {
-+		int use1st = GetVariableNum(pset.vars, "psql_magic_use_1st_on_duplicate", 0, 0, false);
++		int use1st = 0;     // use first(shortest) found match on multiple matches?
++		const char *use_1st_on_dup = GetVariable(pset.vars, "PSQL_MAGIC_USE_1ST_ON_DUPLICATE");
++		if (use_1st_on_dup)
++			ParseVariableNum(use_1st_on_dup, "PSQL_MAGIC_USE_1ST_ON_DUPLICATE", &use1st);
++
 +		psql_error("Warning - more than 1 matches for pattern \"%%%s%%\".\n", pattern);
 +
 +		for (i = 0; i < PQntuples(res); i++) {
@@ -313,7 +315,13 @@ index 0000000000..ee0ccd99f9
 +
 +int
 +get_default_limit() {
-+	return GetVariableNum(pset.vars, "psql_magic_default_row_limit", 5, 5, false);
++	int default_limit = 5;
++
++	const char *row_limit = GetVariable(pset.vars, "PSQL_MAGIC_DEFAULT_ROW_LIMIT");
++	if (row_limit)
++		ParseVariableNum(row_limit, "PSQL_MAGIC_DEFAULT_ROW_LIMIT", &default_limit);
++
++	return default_limit;
 +}
 +
 +char *
@@ -360,25 +368,25 @@ index 0000000000..ee0ccd99f9
 +get_table_by_column_value(char *table_name, char *column_name, char *column_value, char wildcard_option) {
 +	char *ret_sql = pg_malloc(PM_MAX_STATEMENT_CHARS);
 +
-+    if (wildcard_option == 'n') {
-+        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s = %s LIMIT %d;",
-+            table_name, column_name, column_value, get_default_limit());
-+    }
-+    else if (wildcard_option == 'l') {
-+        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s LIKE %s LIMIT %d;",
-+            table_name, column_name, column_value, get_default_limit());
-+    }
-+    else if (wildcard_option == 'i') {
-+        snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s ILIKE %s LIMIT %d;",
-+            table_name, column_name, column_value, get_default_limit());
-+    }
++	if (wildcard_option == 'n') {
++		snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s = %s LIMIT %d;",
++			table_name, column_name, column_value, get_default_limit());
++	}
++	else if (wildcard_option == 'l') {
++		snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s LIKE %s LIMIT %d;",
++			table_name, column_name, column_value, get_default_limit());
++	}
++	else if (wildcard_option == 'i') {
++		snprintf(ret_sql, PM_MAX_STATEMENT_CHARS, "SELECT * FROM %s WHERE %s ILIKE %s LIMIT %d;",
++			table_name, column_name, column_value, get_default_limit());
++	}
 +
 +	return ret_sql;
 +}
 +
 +const char *
 +get_created_column_patterns() {
-+	const char *created_columns = GetVariable(pset.vars, "psql_magic_created_column_patterns");
++	const char *created_columns = GetVariable(pset.vars, "PSQL_MAGIC_CREATED_COLUMN_PATTERNS");
 +
 +	if (created_columns == NULL)
 +		return "created";
@@ -388,7 +396,7 @@ index 0000000000..ee0ccd99f9
 +
 +const char *
 +get_modified_column_patterns() {
-+	const char *modified_columns = GetVariable(pset.vars, "psql_magic_modified_column_patterns");
++	const char *modified_columns = GetVariable(pset.vars, "PSQL_MAGIC_MODIFIED_COLUMN_PATTERNS");
 +
 +	if (modified_columns == NULL)
 +		return "modified";
@@ -399,7 +407,11 @@ index 0000000000..ee0ccd99f9
 +int
 +get_default_order_by_direction() {
 +	// 1 = DESC, 0 = ASC
-+	return GetVariableNum(pset.vars, "psql_magic_default_order_by_direction", 1, 1, false);
++	int direction = 0;
++	const char *order_by_direction = GetVariable(pset.vars, "PSQL_MAGIC_DEFAULT_ORDER_BY_DIRECTION");
++	if (order_by_direction)
++		ParseVariableNum(order_by_direction, "PSQL_MAGIC_DEFAULT_ORDER_BY_DIRECTION", &direction);
++	return direction;
 +}
 +
 +char *
@@ -421,9 +433,9 @@ index 0000000000..ee0ccd99f9
 +do_process_tokens(char** tokens, int tokencount) {
 +	char *ret = NULL, *table_token = NULL, *ob_token = NULL, *limit_token = NULL;
 +	char *order_by_column = NULL, *limit_value = NULL, *id_column = NULL, *id_value = NULL;
-+    char order_by_char = ' ', order_col_char = ' ', ob_c1, ob_c2, ob_c3;
-+    char wildcard_option = 'n'; /* n - no, l - like, i - ilike */
-+    int order_by_direction = 0;
++	char order_by_char = ' ', order_col_char = ' ', ob_c1, ob_c2, ob_c3;
++	char wildcard_option = 'n'; /* n - no, l - like, i - ilike */
++	int order_by_direction = 0;
 +
 +	/* tbl_pattern only */
 +	if (tokencount == 1) {
@@ -448,11 +460,11 @@ index 0000000000..ee0ccd99f9
 +	} else if (tokencount == 4 && tokens[1][0] == 'w') { // tbl w id_pattern id_val
 +		id_column = tokens[2];
 +		id_value = tokens[3];
-+        if (tokens[1][1] == 'l')
-+            wildcard_option = 'l';
-+        else if (tokens[1][1] == 'i')
-+            wildcard_option = 'i';
-+    } else {
++		if (tokens[1][1] == 'l')
++			wildcard_option = 'l';
++		else if (tokens[1][1] == 'i')
++			wildcard_option = 'i';
++	} else {
 +		printf("invalid \\* syntax!\n");
 +		print_magic_help();
 +	}
@@ -518,8 +530,8 @@ index 0000000000..ee0ccd99f9
 +		id_column_full = find_column_by_patterns(table_token, id_column);
 +		if (id_column_full == NULL)
 +			return NULL;
-+        id_value_full = quote_string_if_not_quoted(id_value);
-+        ret = get_table_by_column_value(table_token, id_column_full, id_value_full, wildcard_option);
++		id_value_full = quote_string_if_not_quoted(id_value);
++		ret = get_table_by_column_value(table_token, id_column_full, id_value_full, wildcard_option);
 +		free(id_column_full);
 +		free(id_value_full);
 +	}
