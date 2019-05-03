@@ -29,3 +29,16 @@ psql_magic usage 2: "\* table_pattern w[here] column_pattern column_value"
 	column_value - quotes will be added automatically
 
 ```
+
+Configuration
+=============
+
+Following variables are looked for from the `.psqlrc` config file:
+
+```
+\set PSQL_MAGIC_DEFAULT_ROW_LIMIT 2
+\set PSQL_MAGIC_DEFAULT_ORDER_BY_DIRECTION 1
+\set PSQL_MAGIC_CREATED_COLUMN_PATTERNS created,timestamp,time,mktime,mtime
+\set PSQL_MAGIC_MODIFIED_COLUMN_PATTERNS modified,updated,timestamp,mtime
+\set PSQL_MAGIC_USE_1ST_ON_DUPLICATE 1
+```
